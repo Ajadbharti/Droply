@@ -3,16 +3,27 @@ import express from "express";
 import {
   createShare,
   joinShare,
+  verifySharePassword,
 } from "../controllers/shareController.js";
 
 const router = express.Router();
 
-// Create Share
-// POST /api/shares
-router.post("/", createShare);
+// Create share
+router.post(
+  "/",
+  createShare
+);
 
-// Join Share
-// POST /api/shares/join
-router.post("/join", joinShare);
+// Join share
+router.post(
+  "/join",
+  joinShare
+);
+
+// Verify password
+router.post(
+  "/verify-password",
+  verifySharePassword
+);
 
 export default router;

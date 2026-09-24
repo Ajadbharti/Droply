@@ -1,3 +1,4 @@
+
 import { useRef, useState } from "react";
 import {
   File,
@@ -15,7 +16,10 @@ import {
   Check,
 } from "lucide-react";
 
-import { createShare } from "../services/shareService";
+import {
+  createShare,
+  uploadFile,
+} from "../services/shareService";
 
 const shareTypes = [
   {
@@ -83,6 +87,8 @@ const expiryOptions = [
   },
 ];
 
+const MAX_FILE_SIZE = 50 * 1024 * 1024;
+
 function CreateShare() {
   const [shareType, setShareType] =
     useState("files");
@@ -118,6 +124,12 @@ function CreateShare() {
   const [isCreating, setIsCreating] =
     useState(false);
 
+  const [uploadingFile, setUploadingFile] =
+    useState("");
+
+  const [uploadProgress, setUploadProgress] =
+    useState(0);
+
   const [createdShare, setCreatedShare] =
     useState(null);
 
@@ -130,15 +142,42 @@ function CreateShare() {
   // File Handling
   // ==========================================
 
+  const addFiles = (selectedFiles) => {
+    const validFiles = [];
+    const errors = [];
+
+    selectedFiles.forEach((file) => {
+      if (file.size > MAX_FILE_SIZE) {
+        errors.push(
+          `${file.name} is larger than 50 MB.`
+        );
+        return;
+      }
+
+      validFiles.push(file);
+    });
+
+    if (errors.length > 0) {
+      setApiError(errors.join(" "));
+    } else {
+      setApiError("");
+    }
+
+    setFiles((previousFiles) => [
+      ...previousFiles,
+      ...validFiles,
+    ]);
+  };
+
   const handleFileChange = (event) => {
     const selectedFiles = Array.from(
       event.target.files || []
     );
 
-    setFiles((previousFiles) => [
-      ...previousFiles,
-      ...selectedFiles,
-    ]);
+    addFiles(selectedFiles);
+
+    // Allow selecting the same file again
+    event.target.value = "";
   };
 
   const handleDrop = (event) => {
@@ -148,18 +187,18 @@ function CreateShare() {
       event.dataTransfer.files || []
     );
 
-    setFiles((previousFiles) => [
-      ...previousFiles,
-      ...droppedFiles,
-    ]);
+    addFiles(droppedFiles);
   };
 
   const removeFile = (indexToRemove) => {
     setFiles((previousFiles) =>
       previousFiles.filter(
-        (_, index) => index !== indexToRemove
+        (_, index) =>
+          index !== indexToRemove
       )
     );
+
+    setApiError("");
   };
 
   const getFileSize = (bytes) => {
@@ -179,7 +218,8 @@ function CreateShare() {
     );
 
     return `${(
-      bytes / Math.pow(1024, index)
+      bytes /
+      Math.pow(1024, index)
     ).toFixed(2)} ${sizes[index]}`;
   };
 
@@ -210,6 +250,54 @@ function CreateShare() {
   };
 
   // ==========================================
+  // Upload Selected Files
+  // ==========================================
+
+  const uploadSelectedFiles = async () => {
+    const uploadedFiles = [];
+
+    for (
+      let index = 0;
+      index < files.length;
+      index++
+    ) {
+      const file = files[index];
+
+      setUploadingFile(file.name);
+
+      setUploadProgress(
+        Math.round(
+          (index / files.length) * 100
+        )
+      );
+
+      const response =
+        await uploadFile(file);
+
+      if (!response.success) {
+        throw new Error(
+          response.message ||
+            `Failed to upload ${file.name}`
+        );
+      }
+
+      uploadedFiles.push(response.file);
+
+      setUploadProgress(
+        Math.round(
+          ((index + 1) /
+            files.length) *
+            100
+        )
+      );
+    }
+
+    setUploadingFile("");
+
+    return uploadedFiles;
+  };
+
+  // ==========================================
   // Create Share
   // ==========================================
 
@@ -217,6 +305,8 @@ function CreateShare() {
     event.preventDefault();
 
     setApiError("");
+    setUploadProgress(0);
+    setUploadingFile("");
 
     const content = getCurrentContent();
 
@@ -256,6 +346,21 @@ function CreateShare() {
     try {
       setIsCreating(true);
 
+      // ========================================
+      // Upload Files First
+      // ========================================
+
+      let uploadedFiles = [];
+
+      if (shareType === "files") {
+        uploadedFiles =
+          await uploadSelectedFiles();
+      }
+
+      // ========================================
+      // Create Share Data
+      // ========================================
+
       const shareData = {
         type: shareType,
 
@@ -269,12 +374,7 @@ function CreateShare() {
             ? language
             : "",
 
-        /*
-          Actual file upload will be
-          implemented later using
-          Multer + Object Storage.
-        */
-        files: [],
+        files: uploadedFiles,
 
         expiry,
 
@@ -289,14 +389,25 @@ function CreateShare() {
         burnAfterReading,
       };
 
-      const response =
-        await createShare(shareData);
+      // ========================================
+      // Create Share
+      // ========================================
 
-      if (response.success) {
-        setCreatedShare(
-          response.share
+      const response =
+        await createShare(
+          shareData
+        );
+
+      if (!response.success) {
+        throw new Error(
+          response.message ||
+            "Failed to create share."
         );
       }
+
+      setCreatedShare(
+        response.share
+      );
     } catch (error) {
       console.error(
         "Create share error:",
@@ -305,10 +416,13 @@ function CreateShare() {
 
       setApiError(
         error.response?.data?.message ||
+          error.message ||
           "Failed to create share. Please try again."
       );
     } finally {
       setIsCreating(false);
+      setUploadingFile("");
+      setUploadProgress(0);
     }
   };
 
@@ -320,17 +434,36 @@ function CreateShare() {
     setCreatedShare(null);
 
     setFiles([]);
+
     setText("");
+
     setCode("");
+
     setLink("");
+
     setClipboard("");
+
     setSecret("");
+
     setPassword("");
+
     setPasswordEnabled(false);
+
     setBurnAfterReading(false);
+
     setExpiry("10m");
+
     setShareType("files");
+
     setApiError("");
+
+    setUploadingFile("");
+
+    setUploadProgress(0);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
 
   // ==========================================
@@ -362,7 +495,7 @@ function CreateShare() {
     >
       <div className="mx-auto max-w-5xl">
 
-        {/* ================= Header ================= */}
+        {/* Header */}
 
         <div className="mb-10 text-center">
           <div
@@ -396,12 +529,13 @@ function CreateShare() {
           onSubmit={handleCreateShare}
         >
 
-          {/* ================= Share Type ================= */}
+          {/* Share Type */}
 
           <section
             className="rounded-3xl border p-5 shadow-sm sm:p-6"
             style={{
-              borderColor: "var(--border)",
+              borderColor:
+                "var(--border)",
               backgroundColor:
                 "var(--surface)",
             }}
@@ -432,19 +566,23 @@ function CreateShare() {
                   <button
                     key={type.id}
                     type="button"
+                    disabled={isCreating}
                     onClick={() => {
-                      setShareType(type.id);
+                      setShareType(
+                        type.id
+                      );
                       setApiError("");
                     }}
-                    className="rounded-2xl border p-4 text-left transition hover:-translate-y-0.5"
+                    className="rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
                     style={{
                       borderColor: active
                         ? "rgb(var(--primary))"
                         : "var(--border)",
 
-                      backgroundColor: active
-                        ? "rgb(var(--primary) / 0.08)"
-                        : "var(--bg)",
+                      backgroundColor:
+                        active
+                          ? "rgb(var(--primary) / 0.08)"
+                          : "var(--bg)",
                     }}
                   >
                     <div
@@ -470,7 +608,8 @@ function CreateShare() {
                     <p
                       className="mt-1 text-xs leading-5"
                       style={{
-                        color: "var(--muted)",
+                        color:
+                          "var(--muted)",
                       }}
                     >
                       {type.description}
@@ -481,12 +620,13 @@ function CreateShare() {
             </div>
           </section>
 
-          {/* ================= Content ================= */}
+          {/* Content */}
 
           <section
             className="mt-6 rounded-3xl border p-5 shadow-sm sm:p-6"
             style={{
-              borderColor: "var(--border)",
+              borderColor:
+                "var(--border)",
               backgroundColor:
                 "var(--surface)",
             }}
@@ -504,11 +644,22 @@ function CreateShare() {
                   <p
                     className="mt-1 text-sm"
                     style={{
-                      color: "var(--muted)",
+                      color:
+                        "var(--muted)",
                     }}
                   >
                     Drag and drop files or select
                     them from your device.
+                  </p>
+
+                  <p
+                    className="mt-1 text-xs"
+                    style={{
+                      color:
+                        "var(--muted)",
+                    }}
+                  >
+                    Maximum file size: 50 MB
                   </p>
                 </div>
 
@@ -518,6 +669,7 @@ function CreateShare() {
                   }
                   onDrop={handleDrop}
                   onClick={() =>
+                    !isCreating &&
                     fileInputRef.current?.click()
                   }
                   className="cursor-pointer rounded-2xl border-2 border-dashed p-10 text-center transition hover:opacity-80"
@@ -547,7 +699,8 @@ function CreateShare() {
                   <p
                     className="mt-1 text-sm"
                     style={{
-                      color: "var(--muted)",
+                      color:
+                        "var(--muted)",
                     }}
                   >
                     or click to browse
@@ -558,6 +711,7 @@ function CreateShare() {
                     type="file"
                     multiple
                     className="hidden"
+                    disabled={isCreating}
                     onChange={
                       handleFileChange
                     }
@@ -568,6 +722,7 @@ function CreateShare() {
 
                 {files.length > 0 && (
                   <div className="mt-5 space-y-3">
+
                     {files.map(
                       (file, index) => (
                         <div
@@ -612,10 +767,15 @@ function CreateShare() {
 
                           <button
                             type="button"
-                            onClick={() =>
-                              removeFile(index)
+                            disabled={
+                              isCreating
                             }
-                            className="rounded-lg p-2 transition hover:bg-red-500/10"
+                            onClick={() =>
+                              removeFile(
+                                index
+                              )
+                            }
+                            className="rounded-lg p-2 transition hover:bg-red-500/10 disabled:opacity-50"
                             style={{
                               color:
                                 "var(--muted)",
@@ -626,8 +786,71 @@ function CreateShare() {
                         </div>
                       )
                     )}
+
                   </div>
                 )}
+
+                {/* Upload Progress */}
+
+                {isCreating &&
+                  shareType ===
+                    "files" &&
+                  uploadingFile && (
+                    <div
+                      className="mt-5 rounded-2xl border p-4"
+                      style={{
+                        borderColor:
+                          "var(--border)",
+                        backgroundColor:
+                          "var(--bg)",
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">
+                            Uploading...
+                          </p>
+
+                          <p
+                            className="mt-1 truncate text-xs"
+                            style={{
+                              color:
+                                "var(--muted)",
+                            }}
+                          >
+                            {uploadingFile}
+                          </p>
+                        </div>
+
+                        <span
+                          className="text-sm font-semibold"
+                          style={{
+                            color:
+                              "rgb(var(--primary))",
+                          }}
+                        >
+                          {uploadProgress}%
+                        </span>
+                      </div>
+
+                      <div
+                        className="mt-3 h-2 overflow-hidden rounded-full"
+                        style={{
+                          backgroundColor:
+                            "var(--border)",
+                        }}
+                      >
+                        <div
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{
+                            width: `${uploadProgress}%`,
+                            backgroundColor:
+                              "rgb(var(--primary))",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
               </div>
             )}
 
@@ -647,6 +870,7 @@ function CreateShare() {
             {shareType === "code" && (
               <div>
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+
                   <div>
                     <h2 className="text-lg font-semibold">
                       Code snippet
@@ -655,7 +879,8 @@ function CreateShare() {
                     <p
                       className="mt-1 text-sm"
                       style={{
-                        color: "var(--muted)",
+                        color:
+                          "var(--muted)",
                       }}
                     >
                       Share code with a selected
@@ -665,6 +890,7 @@ function CreateShare() {
 
                   <select
                     value={language}
+                    disabled={isCreating}
                     onChange={(event) =>
                       setLanguage(
                         event.target.value
@@ -724,6 +950,7 @@ function CreateShare() {
 
                 <textarea
                   value={code}
+                  disabled={isCreating}
                   onChange={(event) =>
                     setCode(
                       event.target.value
@@ -731,7 +958,7 @@ function CreateShare() {
                   }
                   placeholder="// Write your code here..."
                   rows={15}
-                  className="w-full resize-y rounded-2xl border p-4 font-mono text-sm outline-none"
+                  className="w-full resize-y rounded-2xl border p-4 font-mono text-sm outline-none disabled:opacity-60"
                   style={{
                     borderColor:
                       "var(--border)",
@@ -756,7 +983,8 @@ function CreateShare() {
                   <p
                     className="mt-1 text-sm"
                     style={{
-                      color: "var(--muted)",
+                      color:
+                        "var(--muted)",
                     }}
                   >
                     Paste any website URL.
@@ -768,20 +996,22 @@ function CreateShare() {
                     size={20}
                     className="absolute left-4 top-1/2 -translate-y-1/2"
                     style={{
-                      color: "var(--muted)",
+                      color:
+                        "var(--muted)",
                     }}
                   />
 
                   <input
                     type="url"
                     value={link}
+                    disabled={isCreating}
                     onChange={(event) =>
                       setLink(
                         event.target.value
                       )
                     }
                     placeholder="https://example.com"
-                    className="w-full rounded-2xl border py-4 pl-12 pr-4 outline-none"
+                    className="w-full rounded-2xl border py-4 pl-12 pr-4 outline-none disabled:opacity-60"
                     style={{
                       borderColor:
                         "var(--border)",
@@ -817,18 +1047,21 @@ function CreateShare() {
                 secret
               />
             )}
+
           </section>
 
-          {/* ================= Options ================= */}
+          {/* Options */}
 
           <section
             className="mt-6 rounded-3xl border p-5 shadow-sm sm:p-6"
             style={{
-              borderColor: "var(--border)",
+              borderColor:
+                "var(--border)",
               backgroundColor:
                 "var(--surface)",
             }}
           >
+
             <div className="mb-6">
               <h2 className="text-lg font-semibold">
                 Share options
@@ -855,6 +1088,7 @@ function CreateShare() {
 
               <select
                 value={expiry}
+                disabled={isCreating}
                 onChange={(event) =>
                   setExpiry(
                     event.target.value
@@ -895,6 +1129,7 @@ function CreateShare() {
               }}
             >
               <div className="flex items-start gap-3">
+
                 <div
                   className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
                   style={{
@@ -908,7 +1143,9 @@ function CreateShare() {
                 </div>
 
                 <div className="flex-1">
+
                   <div className="flex items-center justify-between gap-4">
+
                     <div>
                       <p className="font-medium">
                         Password protection
@@ -928,12 +1165,13 @@ function CreateShare() {
 
                     <button
                       type="button"
+                      disabled={isCreating}
                       onClick={() =>
                         setPasswordEnabled(
                           !passwordEnabled
                         )
                       }
-                      className="relative h-6 w-11 rounded-full transition"
+                      className="relative h-6 w-11 rounded-full transition disabled:opacity-50"
                       style={{
                         backgroundColor:
                           passwordEnabled
@@ -951,19 +1189,21 @@ function CreateShare() {
                         }}
                       />
                     </button>
+
                   </div>
 
                   {passwordEnabled && (
                     <input
                       type="password"
                       value={password}
+                      disabled={isCreating}
                       onChange={(event) =>
                         setPassword(
                           event.target.value
                         )
                       }
                       placeholder="Enter password"
-                      className="mt-4 w-full rounded-xl border px-4 py-3 outline-none"
+                      className="mt-4 w-full rounded-xl border px-4 py-3 outline-none disabled:opacity-60"
                       style={{
                         borderColor:
                           "var(--border)",
@@ -974,11 +1214,12 @@ function CreateShare() {
                       }}
                     />
                   )}
+
                 </div>
               </div>
             </div>
 
-            {/* Burn after reading */}
+            {/* Burn After Reading */}
 
             <div
               className="mt-4 flex items-center gap-3 rounded-2xl border p-4"
@@ -989,6 +1230,7 @@ function CreateShare() {
                   "var(--bg)",
               }}
             >
+
               <div
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
                 style={{
@@ -1019,12 +1261,13 @@ function CreateShare() {
 
               <button
                 type="button"
+                disabled={isCreating}
                 onClick={() =>
                   setBurnAfterReading(
                     !burnAfterReading
                   )
                 }
-                className="relative h-6 w-11 rounded-full transition"
+                className="relative h-6 w-11 rounded-full transition disabled:opacity-50"
                 style={{
                   backgroundColor:
                     burnAfterReading
@@ -1042,10 +1285,12 @@ function CreateShare() {
                   }}
                 />
               </button>
+
             </div>
+
           </section>
 
-          {/* ================= API Error ================= */}
+          {/* API Error */}
 
           {apiError && (
             <div className="mt-5 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-500">
@@ -1053,7 +1298,7 @@ function CreateShare() {
             </div>
           )}
 
-          {/* ================= Security Info ================= */}
+          {/* Security Info */}
 
           <div
             className="mt-6 flex gap-3 rounded-2xl border p-4"
@@ -1091,7 +1336,7 @@ function CreateShare() {
             </div>
           </div>
 
-          {/* ================= Create Button ================= */}
+          {/* Create Button */}
 
           <button
             type="submit"
@@ -1105,7 +1350,12 @@ function CreateShare() {
             {isCreating ? (
               <>
                 <span className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                Creating Share...
+
+                {shareType === "files"
+                  ? uploadingFile
+                    ? `Uploading ${uploadProgress}%...`
+                    : "Creating Share..."
+                  : "Creating Share..."}
               </>
             ) : (
               <>
@@ -1114,6 +1364,7 @@ function CreateShare() {
               </>
             )}
           </button>
+
         </form>
       </div>
     </main>
@@ -1121,7 +1372,7 @@ function CreateShare() {
 }
 
 // ==========================================
-// Content Textarea Component
+// Content Textarea
 // ==========================================
 
 function ContentTextarea({
@@ -1133,6 +1384,7 @@ function ContentTextarea({
 }) {
   return (
     <div>
+
       <div className="mb-4">
         <h2 className="text-lg font-semibold">
           {title}
@@ -1159,17 +1411,20 @@ function ContentTextarea({
         rows={12}
         className="w-full resize-y rounded-2xl border p-4 text-sm outline-none"
         style={{
-          borderColor: "var(--border)",
-          backgroundColor: "var(--bg)",
+          borderColor:
+            "var(--border)",
+          backgroundColor:
+            "var(--bg)",
           color: "var(--text)",
         }}
       />
+
     </div>
   );
 }
 
 // ==========================================
-// Share Created Component
+// Share Created
 // ==========================================
 
 function ShareCreated({
@@ -1233,16 +1488,16 @@ function ShareCreated({
     >
       <div className="mx-auto max-w-2xl">
 
-        {/* Success Card */}
-
         <div
           className="rounded-3xl border p-6 text-center shadow-sm sm:p-10"
           style={{
-            borderColor: "var(--border)",
+            borderColor:
+              "var(--border)",
             backgroundColor:
               "var(--surface)",
           }}
         >
+
           {/* Success Icon */}
 
           <div
@@ -1331,6 +1586,7 @@ function ShareCreated({
             </label>
 
             <div className="flex gap-2">
+
               <input
                 value={shareUrl}
                 readOnly
@@ -1366,8 +1622,42 @@ function ShareCreated({
                     : "Copy"}
                 </span>
               </button>
+
             </div>
           </div>
+
+          {/* File Information */}
+
+          {share.type === "files" &&
+            share.files?.length > 0 && (
+              <div
+                className="mt-6 rounded-2xl border p-4 text-left"
+                style={{
+                  borderColor:
+                    "var(--border)",
+                  backgroundColor:
+                    "var(--bg)",
+                }}
+              >
+                <p className="text-sm font-semibold">
+                  Files uploaded
+                </p>
+
+                <p
+                  className="mt-1 text-xs"
+                  style={{
+                    color:
+                      "var(--muted)",
+                  }}
+                >
+                  {share.files.length} file
+                  {share.files.length > 1
+                    ? "s"
+                    : ""}{" "}
+                  attached to this share.
+                </p>
+              </div>
+            )}
 
           {/* Expiry */}
 
@@ -1448,6 +1738,7 @@ function ShareCreated({
           >
             Create Another Share
           </button>
+
         </div>
       </div>
     </main>
@@ -1455,3 +1746,4 @@ function ShareCreated({
 }
 
 export default CreateShare;
+

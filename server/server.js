@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 
 import connectDB from "./config/db.js";
 import shareRoutes from "./routes/shareRoutes.js";
+  import fileRoutes from "./routes/fileRoutes.js";
 
 dotenv.config();
 
@@ -21,6 +22,10 @@ app.use(
   cors({
     origin: "http://localhost:5173",
   })
+);
+app.use(
+  "/api/files",
+  fileRoutes
 );
 
 app.use(express.json());

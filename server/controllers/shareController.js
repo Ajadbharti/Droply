@@ -1,7 +1,9 @@
+
+import bcrypt from "bcrypt";
 import Share from "../models/Share.js";
 
 // ==========================================
-// Create Share
+// CREATE SHARE
 // ==========================================
 
 export const createShare = async (req, res) => {
@@ -17,7 +19,9 @@ export const createShare = async (req, res) => {
       burnAfterReading = false,
     } = req.body;
 
-    // ================= Validation =================
+    // ==========================================
+    // Allowed Share Types
+    // ==========================================
 
     const allowedTypes = [
       "files",
@@ -28,12 +32,20 @@ export const createShare = async (req, res) => {
       "secret",
     ];
 
+    // ==========================================
+    // Validate Type
+    // ==========================================
+
     if (!allowedTypes.includes(type)) {
       return res.status(400).json({
         success: false,
         message: "Invalid share type",
       });
     }
+
+    // ==========================================
+    // Validate Content
+    // ==========================================
 
     if (
       type !== "files" &&
@@ -45,6 +57,10 @@ export const createShare = async (req, res) => {
       });
     }
 
+    // ==========================================
+    // Validate Password
+    // ==========================================
+
     if (
       passwordProtected &&
       !password.trim()
@@ -55,7 +71,9 @@ export const createShare = async (req, res) => {
       });
     }
 
-    // ================= Expiry =================
+    // ==========================================
+    // Expiry
+    // ==========================================
 
     const expiryMap = {
       "5m": 5 * 60 * 1000,
@@ -77,12 +95,27 @@ export const createShare = async (req, res) => {
       Date.now() + expiryMap[expiry]
     );
 
-    // ================= Generate Code =================
+    // ==========================================
+    // Generate Unique 6 Digit Code
+    // ==========================================
 
     const shareCode =
       await generateUniqueCode();
 
-    // ================= Create Share =================
+    // ==========================================
+    // Hash Password
+    // ==========================================
+
+    let hashedPassword = "";
+
+    if (passwordProtected) {
+      hashedPassword =
+        await bcrypt.hash(password, 12);
+    }
+
+    // ==========================================
+    // Create Share
+    // ==========================================
 
     const share = await Share.create({
       shareCode,
@@ -92,19 +125,23 @@ export const createShare = async (req, res) => {
       files,
       expiresAt,
       passwordProtected,
-      password: passwordProtected
-        ? password
-        : "",
+
+      // Never store plain password
+      password: hashedPassword,
+
       burnAfterReading,
+
       creatorIp:
         req.ip ||
         req.headers["x-forwarded-for"] ||
         "",
     });
 
-    // ================= Response =================
+    // ==========================================
+    // Response
+    // ==========================================
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Share created successfully",
 
@@ -112,6 +149,7 @@ export const createShare = async (req, res) => {
         id: share._id,
         shareCode: share.shareCode,
         type: share.type,
+        files: share.files,
         expiresAt: share.expiresAt,
         passwordProtected:
           share.passwordProtected,
@@ -125,7 +163,7 @@ export const createShare = async (req, res) => {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to create share",
     });
@@ -133,14 +171,16 @@ export const createShare = async (req, res) => {
 };
 
 // ==========================================
-// Join Share
+// JOIN SHARE
 // ==========================================
 
 export const joinShare = async (req, res) => {
   try {
     const { shareCode } = req.body;
 
-    // ================= Validate Code =================
+    // ==========================================
+    // Validate Share Code
+    // ==========================================
 
     if (!shareCode) {
       return res.status(400).json({
@@ -157,7 +197,9 @@ export const joinShare = async (req, res) => {
       });
     }
 
-    // ================= Find Share =================
+    // ==========================================
+    // Find Share
+    // ==========================================
 
     const share = await Share.findOne({
       shareCode,
@@ -170,7 +212,9 @@ export const joinShare = async (req, res) => {
       });
     }
 
-    // ================= Check Expiry =================
+    // ==========================================
+    // Check Expiry
+    // ==========================================
 
     if (new Date() > share.expiresAt) {
       return res.status(410).json({
@@ -179,7 +223,9 @@ export const joinShare = async (req, res) => {
       });
     }
 
-    // ================= Burn After Reading =================
+    // ==========================================
+    // Check Burn After Reading
+    // ==========================================
 
     if (
       share.burnAfterReading &&
@@ -192,14 +238,18 @@ export const joinShare = async (req, res) => {
       });
     }
 
-    // ================= Password =================
+    // ==========================================
+    // Password Protected
+    // ==========================================
 
     if (share.passwordProtected) {
       return res.status(200).json({
         success: true,
         requiresPassword: true,
+
         message:
           "Password required to access this share",
+
         share: {
           shareCode: share.shareCode,
           type: share.type,
@@ -208,14 +258,18 @@ export const joinShare = async (req, res) => {
       });
     }
 
-    // ================= Access Share =================
+    // ==========================================
+    // Mark Accessed
+    // ==========================================
 
     share.accessed = true;
     share.accessCount += 1;
 
     await share.save();
 
-    // ================= Response =================
+    // ==========================================
+    // Return Share
+    // ==========================================
 
     return res.status(200).json({
       success: true,
@@ -241,7 +295,7 @@ export const joinShare = async (req, res) => {
       error
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to access share",
     });
@@ -249,7 +303,168 @@ export const joinShare = async (req, res) => {
 };
 
 // ==========================================
-// Generate Unique 6 Digit Code
+// VERIFY SHARE PASSWORD
+// ==========================================
+
+export const verifySharePassword = async (
+  req,
+  res
+) => {
+  try {
+    const {
+      shareCode,
+      password,
+    } = req.body;
+
+    // ==========================================
+    // Validate Share Code
+    // ==========================================
+
+    if (!shareCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Share code is required",
+      });
+    }
+
+    if (!/^\d{6}$/.test(shareCode)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Share code must contain exactly 6 digits",
+      });
+    }
+
+    // ==========================================
+    // Validate Password
+    // ==========================================
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message: "Password is required",
+      });
+    }
+
+    // ==========================================
+    // Find Share
+    // ==========================================
+
+    const share = await Share.findOne({
+      shareCode,
+    });
+
+    if (!share) {
+      return res.status(404).json({
+        success: false,
+        message: "Share not found",
+      });
+    }
+
+    // ==========================================
+    // Check Expiry
+    // ==========================================
+
+    if (new Date() > share.expiresAt) {
+      return res.status(410).json({
+        success: false,
+        message: "This share has expired",
+      });
+    }
+
+    // ==========================================
+    // Check Burn After Reading
+    // ==========================================
+
+    if (
+      share.burnAfterReading &&
+      share.accessed
+    ) {
+      return res.status(410).json({
+        success: false,
+        message:
+          "This share has already been accessed",
+      });
+    }
+
+    // ==========================================
+    // Check Password Protection
+    // ==========================================
+
+    if (!share.passwordProtected) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This share does not require a password",
+      });
+    }
+
+    // ==========================================
+    // Compare Password
+    // ==========================================
+
+    const passwordMatch =
+      await bcrypt.compare(
+        password,
+        share.password
+      );
+
+    if (!passwordMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Incorrect password",
+      });
+    }
+
+    // ==========================================
+    // Mark Accessed
+    // ==========================================
+
+    share.accessed = true;
+    share.accessCount += 1;
+
+    await share.save();
+
+    // ==========================================
+    // Return Share Content
+    // ==========================================
+
+    return res.status(200).json({
+      success: true,
+      requiresPassword: false,
+
+      message:
+        "Password verified successfully",
+
+      share: {
+        id: share._id,
+        shareCode: share.shareCode,
+        type: share.type,
+        content: share.content,
+        language: share.language,
+        files: share.files,
+        expiresAt: share.expiresAt,
+        burnAfterReading:
+          share.burnAfterReading,
+        accessCount:
+          share.accessCount,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Verify Password Error:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to verify password",
+    });
+  }
+};
+
+// ==========================================
+// GENERATE UNIQUE 6 DIGIT CODE
 // ==========================================
 
 async function generateUniqueCode() {
