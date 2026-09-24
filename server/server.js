@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 
 import connectDB from "./config/db.js";
+import shareRoutes from "./routes/shareRoutes.js";
 
 dotenv.config();
 
@@ -30,7 +31,7 @@ app.use(
   })
 );
 
-// ================= Health Check =================
+// ================= Routes =================
 
 app.get("/", (req, res) => {
   res.json({
@@ -39,14 +40,17 @@ app.get("/", (req, res) => {
   });
 });
 
-// ================= Test API =================
-
 app.get("/api/test", (req, res) => {
   res.json({
     success: true,
     message: "Backend is working correctly",
   });
 });
+
+app.use(
+  "/api/shares",
+  shareRoutes
+);
 
 // ================= Server =================
 
