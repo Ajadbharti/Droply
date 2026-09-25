@@ -1,10 +1,11 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import path from "path";
 
 import connectDB from "./config/db.js";
 import shareRoutes from "./routes/shareRoutes.js";
-  import fileRoutes from "./routes/fileRoutes.js";
+import fileRoutes from "./routes/fileRoutes.js";
 
 dotenv.config();
 
@@ -12,20 +13,17 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 
-// ================= Database =================
+const uploadsPath = path.join(
+  process.cwd(),
+  "uploads"
+);
 
 connectDB();
-
-// ================= Middleware =================
 
 app.use(
   cors({
     origin: "http://localhost:5173",
   })
-);
-app.use(
-  "/api/files",
-  fileRoutes
 );
 
 app.use(express.json());
@@ -36,7 +34,18 @@ app.use(
   })
 );
 
-// ================= Routes =================
+// ==========================================
+// SERVE UPLOADED FILES
+// ==========================================
+
+app.use(
+  "/uploads",
+  express.static(uploadsPath)
+);
+
+// ==========================================
+// TEST ROUTES
+// ==========================================
 
 app.get("/", (req, res) => {
   res.json({
@@ -52,15 +61,30 @@ app.get("/api/test", (req, res) => {
   });
 });
 
+// ==========================================
+// API ROUTES
+// ==========================================
+
 app.use(
   "/api/shares",
   shareRoutes
 );
 
-// ================= Server =================
+app.use(
+  "/api/files",
+  fileRoutes
+);
+
+// ==========================================
+// SERVER
+// ==========================================
 
 app.listen(PORT, () => {
   console.log(
     `🚀 Droply server running on http://localhost:${PORT}`
+  );
+
+  console.log(
+    `📁 Uploads folder: ${uploadsPath}`
   );
 });

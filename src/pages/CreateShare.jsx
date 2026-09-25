@@ -1,5 +1,6 @@
 
 import { useRef, useState } from "react";
+import { QRCodeCanvas } from "qrcode.react";
 import {
   File,
   FileText,
@@ -1437,8 +1438,34 @@ function ShareCreated({
   const [copiedLink, setCopiedLink] =
     useState(false);
 
+  const [qrDownloaded, setQrDownloaded] =
+    useState(false);
+
   const shareUrl =
     `${window.location.origin}/join?code=${share.shareCode}`;
+
+  const downloadQRCode = () => {
+    const canvas = document.getElementById(
+      "droply-qr-code"
+    );
+
+    if (!canvas) {
+      return;
+    }
+
+    const link = document.createElement("a");
+
+    link.download = `droply-${share.shareCode}.png`;
+    link.href = canvas.toDataURL("image/png");
+
+    link.click();
+
+    setQrDownloaded(true);
+
+    setTimeout(() => {
+      setQrDownloaded(false);
+    }, 2000);
+  };
 
   const copyCode = async () => {
     try {
@@ -1623,6 +1650,77 @@ function ShareCreated({
                 </span>
               </button>
 
+            </div>
+          </div>
+
+          {/* QR Code */}
+
+          <div
+            className="mt-6 rounded-2xl border p-5"
+            style={{
+              borderColor:
+                "var(--border)",
+              backgroundColor:
+                "var(--bg)",
+            }}
+          >
+            <div className="text-left">
+              <p className="text-sm font-semibold">
+                Scan to access this share
+              </p>
+
+              <p
+                className="mt-1 text-xs"
+                style={{
+                  color: "var(--muted)",
+                }}
+              >
+                Scan this QR code to open the
+                share directly.
+              </p>
+            </div>
+
+            <div className="mt-5 flex justify-center">
+              <div
+                className="rounded-2xl border p-4"
+                style={{
+                  borderColor:
+                    "var(--border)",
+                  backgroundColor: "#ffffff",
+                }}
+              >
+                <QRCodeCanvas
+                  id="droply-qr-code"
+                  value={shareUrl}
+                  size={220}
+                  level="H"
+                  includeMargin
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-center">
+              <button
+                type="button"
+                onClick={downloadQRCode}
+                className="inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold text-white transition hover:opacity-90"
+                style={{
+                  backgroundColor:
+                    "rgb(var(--primary))",
+                }}
+              >
+                {qrDownloaded ? (
+                  <>
+                    <Check size={17} />
+                    Downloaded
+                  </>
+                ) : (
+                  <>
+                    <Upload size={17} />
+                    Download QR
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
